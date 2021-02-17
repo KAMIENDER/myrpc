@@ -2,91 +2,92 @@ package socket
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
+	"github.com/hejiadong/myrpc/socket/infra"
 	"net"
 )
 
-type Socket interface {
-	Serve(address string) error
-	RegisterProcessor(fun func([]byte) error)
-	process(conn net.Conn) error
-	BuildConnection() (net.Conn, error)
-	Send([]byte) error
-	Receive() ([]byte, error)
+type MyServer struct {
+	listener    net.Listener
+	connType    string
+	address     string
+	string2func map[string]func(interface{}) (interface{}, error)
 }
 
-type TCPSocket struct {
-	listener  net.Listener
-	processor func([]byte) error
-	conn      net.Conn
-}
-
-func (s TCPSocket) RegisterProcessor(fun func([]byte) error) {
-	s.processor = fun
-}
-
-func (s TCPSocket) process(conn net.Conn) error {
+func (s MyServer) process(conn net.Conn) error {
 	defer conn.Close()
 	for {
 		reader := bufio.NewReader(conn)
-		var buf [128]byte
+		var buf [512]byte
 		n, err := reader.Read(buf[:])
 		if err != nil {
-			fmt.Printf("[TCPSocket] process Read error: %v", err)
 			return err
 		}
-		err = s.processor(buf[:n])
+		dataFrame, err := s.decode(buf[:n])
 		if err != nil {
-			fmt.Printf("[TCPSocket] process processor error: %v", err)
+			return err
+		}
+		result, err := s.dispatch(dataFrame)
+		if err != nil {
+			return err
+		}
+		err = s.send(result, conn)
+		if err != nil {
 			return err
 		}
 	}
-	return nil
 }
 
-func (s TCPSocket) Serve(address string) error {
-	var err error
-	s.listener, err = net.Listen("tcp", address)
+func (s MyServer) send(result interface{}, conn net.Conn) error {
+	buf, err := json.Marshal(result)
 	if err != nil {
-		fmt.Printf("[TCPSocket] Serve listen error: %v", err)
 		return err
 	}
-	fmt.Printf("[TCPSocket] Serve listening at %v", address)
+	_, err = conn.Write(buf)
+	return err
+}
+
+func (s MyServer) dispatch(dataFrame infra.DataFrame) (interface{}, error) {
+	handler, ok := s.string2func[dataFrame.Method]
+	if !ok {
+		return nil, error(fmt.Errorf("func not exits"))
+	}
+	return handler(dataFrame.Data)
+}
+
+func (s MyServer) decode(bytes []byte) (infra.DataFrame, error) {
+	var a infra.DataFrame
+	err := json.Unmarshal(bytes, &a)
+	return a, err
+}
+
+func (s MyServer) Listen() error {
+	fmt.Printf("[MyServer]start listening at %v", s.listener.Addr())
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
-			fmt.Printf("[TCPSocket] Serve accept error: %v", err)
 			return err
 		}
 		go s.process(conn)
 	}
+}
+func (s MyServer) Register(handler func(interface{}) (interface{}, error), name string) error {
+	s.string2func[name] = handler
 	return nil
 }
 
-func (s TCPSocket) BuildConnection(address string) (net.Conn, error) {
-	conn, err := net.Dial("tcp", address)
+func NewMyServer(connType string, address string) *MyServer {
+	listener, err := net.Listen(connType, address)
+	string2func := make(map[string]func(interface{}) (interface{}, error))
 	if err != nil {
-		fmt.Printf("[TCPSocket] BuildConnection error: %v", err)
-		return nil, err
+		fmt.Printf("[newMyServer]err :%v", err)
+		return nil
 	}
-	s.conn = conn
-	return conn, err
-}
-
-func (s TCPSocket) Send(info []byte) error {
-	_, err := s.conn.Write(info)
-	if err != nil {
-		fmt.Printf("[TCPSocket] Send Write error: %v", err)
+	return &MyServer{
+		listener:    listener,
+		connType:    connType,
+		address:     address,
+		string2func: string2func,
 	}
-	return err
-}
-
-func (s TCPSocket) Receive() ([]byte, error) {
-	var buf [1024]byte
-	n, err := s.conn.Read(buf[:])
-	if err != nil {
-		fmt.Printf("[TCPSocket] Receive error: %v", err)
-		return nil, err
-	}
-	return buf[:n], nil
 }
