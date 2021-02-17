@@ -6,7 +6,7 @@ import (
 	"github.com/hejiadong/myrpc/socket/server"
 )
 
-func add(params interface{}) (interface{}, error) {
+func Add(params interface{}) (interface{}, error) {
 	type out struct {
 		Result int
 	}
@@ -30,6 +30,6 @@ func add(params interface{}) (interface{}, error) {
 
 func main() {
 	server := socket.NewMyServer("tcp", "127.0.0.1:9999")
-	server.Register(add, "add")
+	server.Register(Add, "Add")
 	server.Listen()
 }

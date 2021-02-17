@@ -5,12 +5,18 @@ import (
 	MyClient "github.com/hejiadong/myrpc/socket/client"
 )
 
+type AddService struct {
+	Add func(a int, b int) (int, error)
+}
+
+func (s *AddService) Name() string {
+	return "Add"
+}
+
 func main() {
+	var s AddService
 	client := MyClient.NewMyClient("tcp", "127.0.0.1:9999")
-	b, err := client.Call("add", 0)
-	if err != nil {
-		fmt.Printf("err: %v", err)
-	}
-	fmt.Printf("result: %v", b)
-	return
+	client.RegisterService(&s)
+	b, err := s.Add(1, 2)
+	fmt.Printf("%v %v", b, err)
 }
