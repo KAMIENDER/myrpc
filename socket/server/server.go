@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"net"
+	"reflect"
 )
 
 type MyServer struct {
-	listener    net.Listener
-	connType    string
-	address     string
-	string2func map[string]func(interface{}) (interface{}, error)
+	listener     net.Listener
+	connType     string
+	address      string
+	name2handler map[string]*reflect.Value
+	name2params  map[string][]reflect.Type
 }
 
 func (s MyServer) process(conn net.Conn) error {
@@ -28,7 +30,7 @@ func (s MyServer) process(conn net.Conn) error {
 		if err != nil {
 			return err
 		}
-		result, err := s.dispatch(dataFrame)
+		result, err := s.dispatch(*dataFrame)
 		if err != nil {
 			return err
 		}
@@ -39,8 +41,13 @@ func (s MyServer) process(conn net.Conn) error {
 	}
 }
 
-func (s MyServer) send(result interface{}, conn net.Conn) error {
-	buf, err := json.Marshal(result)
+func (s MyServer) send(result []reflect.Value, conn net.Conn) error {
+	body := make([]interface{}, 0)
+	for i := 0; i < len(result); i++ {
+		body = append(body, result[i].Interface())
+	}
+	response := infra.NewRPCResponse(body)
+	buf, err := json.Marshal(response)
 	if err != nil {
 		return err
 	}
@@ -48,18 +55,33 @@ func (s MyServer) send(result interface{}, conn net.Conn) error {
 	return err
 }
 
-func (s MyServer) dispatch(dataFrame infra.DataFrame) (interface{}, error) {
-	handler, ok := s.string2func[dataFrame.Method]
+func (s MyServer) dispatch(request infra.RPCRequest) ([]reflect.Value, error) {
+	handler, ok := s.name2handler[request.MethodName]
 	if !ok {
-		return nil, error(fmt.Errorf("func not exits"))
+		return nil, error(fmt.Errorf("[Server]dispatch error: func not exits"))
 	}
-	return handler(dataFrame.Data)
+	start := 0
+	end := len(request.Params)
+	paramVs := make([]reflect.Value, 0)
+	funcParamsT := s.name2params[request.MethodName]
+	if len(funcParamsT) != end-start {
+		return nil, fmt.Errorf("[Server]dispatch error: num of args dismatch")
+	}
+	for i := start; i < end; i++ {
+		param := reflect.ValueOf(request.Params[i]).Convert(funcParamsT[i])
+		paramVs = append(paramVs, param)
+	}
+	result := handler.Call(paramVs)
+	return result, nil
 }
 
-func (s MyServer) decode(bytes []byte) (infra.DataFrame, error) {
-	var a infra.DataFrame
-	err := json.Unmarshal(bytes, &a)
-	return a, err
+func (s MyServer) decode(bytes []byte) (*infra.RPCRequest, error) {
+	var request infra.RPCRequest
+	err := json.Unmarshal(bytes, &request)
+	if err != nil {
+		return nil, err
+	}
+	return &request, err
 }
 
 func (s MyServer) Listen() error {
@@ -72,22 +94,35 @@ func (s MyServer) Listen() error {
 		go s.process(conn)
 	}
 }
-func (s MyServer) Register(handler func(interface{}) (interface{}, error), name string) error {
-	s.string2func[name] = handler
+func (s MyServer) Register(handler interface{}, name string) error {
+	handlerV := reflect.ValueOf(handler)
+	handlerT := reflect.TypeOf(handler)
+	if handlerT.Kind() != reflect.Func {
+		return error(fmt.Errorf("[MyServer Register]error: Not Func type"))
+	}
+	args := make([]reflect.Type, 0)
+	for i := 0; i < handlerT.NumIn(); i++ {
+		arg := handlerT.In(i)
+		args = append(args, arg)
+	}
+	s.name2handler[name] = &handlerV
+	s.name2params[name] = args
 	return nil
 }
 
 func NewMyServer(connType string, address string) *MyServer {
 	listener, err := net.Listen(connType, address)
-	string2func := make(map[string]func(interface{}) (interface{}, error))
+	name2handler := make(map[string]*reflect.Value)
+	name2params := make(map[string][]reflect.Type)
 	if err != nil {
 		fmt.Printf("[newMyServer]err :%v", err)
 		return nil
 	}
 	return &MyServer{
-		listener:    listener,
-		connType:    connType,
-		address:     address,
-		string2func: string2func,
+		listener:     listener,
+		connType:     connType,
+		address:      address,
+		name2handler: name2handler,
+		name2params:  name2params,
 	}
 }
