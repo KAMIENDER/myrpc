@@ -3,10 +3,11 @@ package main
 import (
 	"fmt"
 	MyClient "github.com/hejiadong/myrpc/socket/client"
+	socket "github.com/hejiadong/myrpc/socket/myError"
 )
 
 type AddService struct {
-	Add func(a int, b int) (int, error)
+	Add func(a int, b int) (int, socket.RPCError)
 }
 
 func (s *AddService) Name() string {

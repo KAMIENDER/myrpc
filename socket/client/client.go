@@ -1,10 +1,12 @@
+//+build linux,amd64,go1.12
+
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/hejiadong/myrpc/socket/service"
+	"github.com/vmihailenco/msgpack"
 	"net"
 	"reflect"
 )
@@ -26,7 +28,7 @@ func (c MyClient) send(bytes []byte) error {
 }
 
 func (c MyClient) get() ([]byte, error) {
-	var buf [512]byte
+	var buf [10000]byte
 	n, err := c.connect.Read(buf[:])
 	if err != nil {
 		return nil, err
@@ -36,7 +38,7 @@ func (c MyClient) get() ([]byte, error) {
 
 func (c MyClient) call(method string, params []interface{}) ([]interface{}, error) {
 	request := infra.NewRPCRequest(method, params)
-	bytes, err := json.Marshal(&request)
+	bytes, err := msgpack.Marshal(&request)
 	if err != nil {
 		return nil, err
 	}
@@ -49,7 +51,7 @@ func (c MyClient) call(method string, params []interface{}) ([]interface{}, erro
 		return nil, err
 	}
 	var response infra.RPCResponse
-	err = json.Unmarshal(resultBytes, &response)
+	err = msgpack.Unmarshal(resultBytes, &response)
 	if err != nil {
 		return nil, err
 	}
@@ -75,17 +77,23 @@ func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflec
 		}
 
 		result, err := c.call(methodName, paramInterface)
-		out := make([]reflect.Value, 0)
 		if err != nil {
-			out = append(out, reflect.ValueOf(err))
-			return out
+			panic(err)
 		}
+
+		out := make([]reflect.Value, 0)
 		if len(result) != len(c.name2result[methodName]) {
 			out = append(out, reflect.ValueOf(fmt.Errorf("[MyClient]different out num betwwen remote and local")))
 			return out
 		}
 		for i := 0; i < len(result); i++ {
-			out = append(out, reflect.ValueOf(result[i]).Convert(c.name2result[methodName][i]))
+			var tmp reflect.Value
+			if reflect.ValueOf(result[i]).Kind() == reflect.Interface {
+				tmp = reflect.New(c.name2result[methodName][i])
+			} else {
+				tmp = reflect.ValueOf(result[i]).Convert(c.name2result[methodName][i])
+			}
+			out = append(out, tmp)
 		}
 		return out
 	}

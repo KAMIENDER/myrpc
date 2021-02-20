@@ -2,9 +2,9 @@ package socket
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
+	"github.com/vmihailenco/msgpack"
 	"net"
 	"reflect"
 )
@@ -47,7 +47,7 @@ func (s MyServer) send(result []reflect.Value, conn net.Conn) error {
 		body = append(body, result[i].Interface())
 	}
 	response := infra.NewRPCResponse(body)
-	buf, err := json.Marshal(response)
+	buf, err := msgpack.Marshal(response)
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func (s MyServer) dispatch(request infra.RPCRequest) ([]reflect.Value, error) {
 
 func (s MyServer) decode(bytes []byte) (*infra.RPCRequest, error) {
 	var request infra.RPCRequest
-	err := json.Unmarshal(bytes, &request)
+	err := msgpack.Unmarshal(bytes, &request)
 	if err != nil {
 		return nil, err
 	}

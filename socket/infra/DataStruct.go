@@ -2,11 +2,6 @@
 
 package infra
 
-type DataFrame struct {
-	Method string
-	Data   []interface{}
-}
-
 type RPCRequest struct {
 	MethodName string        `json:"method_name"`
 	Params     []interface{} `json:"params"`
