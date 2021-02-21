@@ -1,4 +1,4 @@
-//+build linux,amd64,go1.12
+//+build linux amd64
 
 package client
 
@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/hejiadong/myrpc/socket/service"
+	"github.com/mitchellh/mapstructure"
 	"github.com/vmihailenco/msgpack"
 	"net"
 	"reflect"
@@ -90,6 +91,7 @@ func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflec
 			var tmp reflect.Value
 			if reflect.ValueOf(result[i]).Kind() == reflect.Interface {
 				tmp = reflect.New(c.name2result[methodName][i])
+				mapstructure.Decode(result[i], &tmp)
 			} else {
 				tmp = reflect.ValueOf(result[i]).Convert(c.name2result[methodName][i])
 			}
