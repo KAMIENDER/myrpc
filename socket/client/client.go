@@ -40,6 +40,8 @@ func (c MyClient) get() ([]byte, error) {
 func (c MyClient) call(method string, params []interface{}) ([]interface{}, error) {
 	request := infra.NewRPCRequest(method, params)
 	bytes, err := msgpack.Marshal(&request)
+	var test infra.RPCRequest
+	msgpack.Unmarshal(bytes, &test)
 	if err != nil {
 		return nil, err
 	}
@@ -89,9 +91,10 @@ func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflec
 		}
 		for i := 0; i < len(result); i++ {
 			var tmp reflect.Value
-			if reflect.ValueOf(result[i]).Kind() == reflect.Interface {
-				tmp = reflect.New(c.name2result[methodName][i])
-				mapstructure.Decode(result[i], &tmp)
+			if c.name2result[methodName][i].Kind() == reflect.Struct {
+				inter := reflect.New(c.name2result[methodName][i]).Interface()
+				mapstructure.Decode(result[i], &inter)
+				tmp = reflect.ValueOf(inter).Elem()
 			} else {
 				tmp = reflect.ValueOf(result[i]).Convert(c.name2result[methodName][i])
 			}

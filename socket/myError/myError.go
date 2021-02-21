@@ -1,7 +1,7 @@
 package socket
 
 import (
-	"runtime"
+	"runtime/debug"
 )
 
 var ErrorStackBufferSize = 4096
@@ -12,14 +12,13 @@ type MyError interface {
 }
 
 type RPCError struct {
-	Info      string        `json:"info"`
-	StackInfo string        `json:"stack"`
-	Extra     []interface{} `json:"Extra"`
+	Info      string
+	StackInfo string
+	Extra     []interface{}
 }
 
 func NewRPCError(info string) *RPCError {
-	stack := make([]byte, ErrorStackBufferSize) //4KB
-	runtime.Stack(stack, true)
+	stack := debug.Stack()
 	return &RPCError{
 		Info:      info,
 		StackInfo: string(stack),

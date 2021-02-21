@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
+	"github.com/mitchellh/mapstructure"
 	"github.com/vmihailenco/msgpack"
 	"net"
 	"reflect"
@@ -21,7 +22,7 @@ func (s MyServer) process(conn net.Conn) error {
 	defer conn.Close()
 	for {
 		reader := bufio.NewReader(conn)
-		var buf [512]byte
+		var buf [10000]byte
 		n, err := reader.Read(buf[:])
 		if err != nil {
 			return err
@@ -68,7 +69,14 @@ func (s MyServer) dispatch(request infra.RPCRequest) ([]reflect.Value, error) {
 		return nil, fmt.Errorf("[Server]dispatch error: num of args dismatch")
 	}
 	for i := start; i < end; i++ {
-		param := reflect.ValueOf(request.Params[i]).Convert(funcParamsT[i])
+		var param reflect.Value
+		if s.name2params[request.MethodName][i].Kind() == reflect.Struct {
+			inter := reflect.New(s.name2params[request.MethodName][i]).Interface()
+			mapstructure.Decode(request.Params[i], &inter)
+			param = reflect.ValueOf(inter).Elem()
+		} else {
+			param = reflect.ValueOf(request.Params[i]).Convert(funcParamsT[i])
+		}
 		paramVs = append(paramVs, param)
 	}
 	result := handler.Call(paramVs)

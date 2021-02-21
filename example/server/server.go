@@ -5,8 +5,18 @@ import (
 	server "github.com/hejiadong/myrpc/socket/server"
 )
 
-func Add(a int, b int) (int, socket.MyError) {
-	return a + b, socket.NewRPCError("test")
+type Test struct {
+	C int
+}
+
+type Params struct {
+	A    int
+	B    int
+	Test Test
+}
+
+func Add(params Params) (int, socket.MyError) {
+	return params.A + params.B, socket.NewRPCError("test")
 }
 
 func main() {
