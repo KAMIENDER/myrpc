@@ -16,7 +16,7 @@ type Params struct {
 }
 
 func Add(params Params) (int, socket.MyError) {
-	return params.A + params.B, socket.NewRPCError("test")
+	return params.A + params.B, nil
 }
 
 func main() {

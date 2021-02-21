@@ -18,36 +18,39 @@ type MyServer struct {
 	name2params  map[string][]reflect.Type
 }
 
-func (s MyServer) process(conn net.Conn) error {
-	defer conn.Close()
+func (s MyServer) process(con net.Conn) error {
+	defer con.Close()
 	for {
-		reader := bufio.NewReader(conn)
-		var buf [10000]byte
-		n, err := reader.Read(buf[:])
+		request, err := s.get(con)
 		if err != nil {
 			return err
 		}
-		dataFrame, err := s.decode(buf[:n])
+		response, err := s.dispatch(*request)
 		if err != nil {
 			return err
 		}
-		result, err := s.dispatch(*dataFrame)
-		if err != nil {
-			return err
-		}
-		err = s.send(result, conn)
+		err = s.send(response, con)
 		if err != nil {
 			return err
 		}
 	}
 }
 
-func (s MyServer) send(result []reflect.Value, conn net.Conn) error {
-	body := make([]interface{}, 0)
-	for i := 0; i < len(result); i++ {
-		body = append(body, result[i].Interface())
+func (s MyServer) get(con net.Conn) (*infra.RPCRequest, error) {
+	var request infra.RPCRequest
+
+	reader := bufio.NewReader(con)
+	var buf [10000]byte
+	n, err := reader.Read(buf[:])
+
+	if err != nil {
+		return nil, err
 	}
-	response := infra.NewRPCResponse(body)
+	err = request.Decode(buf[:n])
+	return &request, err
+}
+
+func (s MyServer) send(response *infra.RPCResponse, conn net.Conn) error {
 	buf, err := msgpack.Marshal(response)
 	if err != nil {
 		return err
@@ -56,40 +59,52 @@ func (s MyServer) send(result []reflect.Value, conn net.Conn) error {
 	return err
 }
 
-func (s MyServer) dispatch(request infra.RPCRequest) ([]reflect.Value, error) {
-	handler, ok := s.name2handler[request.MethodName]
-	if !ok {
-		return nil, error(fmt.Errorf("[Server]dispatch error: func not exits"))
-	}
+func (s MyServer) convertParams(methodName string, params []interface{}) ([]reflect.Value, error) {
 	start := 0
-	end := len(request.Params)
+	end := len(params)
 	paramVs := make([]reflect.Value, 0)
-	funcParamsT := s.name2params[request.MethodName]
+	funcParamsT := s.name2params[methodName]
 	if len(funcParamsT) != end-start {
 		return nil, fmt.Errorf("[Server]dispatch error: num of args dismatch")
 	}
 	for i := start; i < end; i++ {
 		var param reflect.Value
-		if s.name2params[request.MethodName][i].Kind() == reflect.Struct {
-			inter := reflect.New(s.name2params[request.MethodName][i]).Interface()
-			mapstructure.Decode(request.Params[i], &inter)
+		if s.name2params[methodName][i].Kind() == reflect.Struct {
+			inter := reflect.New(s.name2params[methodName][i]).Interface()
+			mapstructure.Decode(params[i], &inter)
 			param = reflect.ValueOf(inter).Elem()
 		} else {
-			param = reflect.ValueOf(request.Params[i]).Convert(funcParamsT[i])
+			param = reflect.ValueOf(params[i]).Convert(funcParamsT[i])
 		}
 		paramVs = append(paramVs, param)
 	}
-	result := handler.Call(paramVs)
-	return result, nil
+	return paramVs, nil
 }
 
-func (s MyServer) decode(bytes []byte) (*infra.RPCRequest, error) {
-	var request infra.RPCRequest
-	err := msgpack.Unmarshal(bytes, &request)
+func (s MyServer) convertResult(result []reflect.Value) ([]interface{}, error) {
+	resultInterfaces := make([]interface{}, 0)
+	for i := 0; i < len(result); i++ {
+		resultInterfaces = append(resultInterfaces, result[i].Interface())
+	}
+	return resultInterfaces, nil
+}
+
+func (s MyServer) dispatch(request infra.RPCRequest) (*infra.RPCResponse, error) {
+	handler, ok := s.name2handler[request.MethodName]
+	if !ok {
+		return nil, error(fmt.Errorf("[Server]dispatch error: func not exits"))
+	}
+
+	params, err := s.convertParams(request.MethodName, request.Params)
 	if err != nil {
 		return nil, err
 	}
-	return &request, err
+	result := handler.Call(params)
+
+	resultInterfaces, err := s.convertResult(result)
+	response := infra.NewRPCResponse(resultInterfaces)
+
+	return response, nil
 }
 
 func (s MyServer) Listen() error {

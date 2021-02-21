@@ -7,7 +7,6 @@ import (
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/hejiadong/myrpc/socket/service"
 	"github.com/mitchellh/mapstructure"
-	"github.com/vmihailenco/msgpack"
 	"net"
 	"reflect"
 )
@@ -19,88 +18,94 @@ type MyClient struct {
 	name2result map[string][]reflect.Type
 }
 
-func (c MyClient) send(bytes []byte) error {
-	n, err := c.connect.Write(bytes)
+func (c MyClient) send(request *infra.RPCRequest) error {
+	bytes, err := request.Encode()
 	if err != nil {
 		return err
 	}
-	println(n)
+	_, err = c.connect.Write(bytes)
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
-func (c MyClient) get() ([]byte, error) {
+func (c MyClient) get() (*infra.RPCResponse, error) {
 	var buf [10000]byte
 	n, err := c.connect.Read(buf[:])
 	if err != nil {
 		return nil, err
 	}
-	return buf[:n], nil
+	var response infra.RPCResponse
+	err = response.Decode(buf[:n])
+	return &response, err
 }
 
 func (c MyClient) call(method string, params []interface{}) ([]interface{}, error) {
 	request := infra.NewRPCRequest(method, params)
-	bytes, err := msgpack.Marshal(&request)
-	var test infra.RPCRequest
-	msgpack.Unmarshal(bytes, &test)
+	err := c.send(request)
 	if err != nil {
 		return nil, err
 	}
-	err = c.send(bytes)
-	if err != nil {
-		return nil, err
-	}
-	resultBytes, err := c.get()
-	if err != nil {
-		return nil, err
-	}
-	var response infra.RPCResponse
-	err = msgpack.Unmarshal(resultBytes, &response)
+	response, err := c.get()
 	if err != nil {
 		return nil, err
 	}
 	return response.Body, nil
 }
 
-func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflect.Value {
-	return func(in []reflect.Value) []reflect.Value {
-		var paramInterface []interface{}
+func (c MyClient) convertParams(values []reflect.Value) ([]interface{}, error) {
+	var paramInterfaces []interface{}
 
-		start := 0
-		end := len(in)
+	start := 0
+	end := len(values)
 
-		if end-start <= 0 {
-			paramInterface = []interface{}{}
-		} else {
-			paramInterface = make([]interface{}, end-start)
-			index := 0
-			for i := start; i < end; i++ {
-				paramInterface[index] = in[i].Interface()
-				index++
-			}
+	if end-start <= 0 {
+		paramInterfaces = []interface{}{}
+	} else {
+		paramInterfaces = make([]interface{}, end-start)
+		index := 0
+		for i := start; i < end; i++ {
+			paramInterfaces[index] = values[i].Interface()
+			index++
 		}
+	}
+	return paramInterfaces, nil
+}
 
-		result, err := c.call(methodName, paramInterface)
+func (c MyClient) convertResults(methodName string, resultInterfaces []interface{}) ([]reflect.Value, error) {
+	result := make([]reflect.Value, 0)
+	if len(resultInterfaces) != len(c.name2result[methodName]) {
+		return result, fmt.Errorf("[MyClient]different result num betwwen remote and local")
+	}
+	for i := 0; i < len(resultInterfaces); i++ {
+		var tmp reflect.Value
+		if c.name2result[methodName][i].Kind() == reflect.Struct {
+			inter := reflect.New(c.name2result[methodName][i]).Interface()
+			mapstructure.Decode(resultInterfaces[i], &inter)
+			tmp = reflect.ValueOf(inter).Elem()
+		} else {
+			tmp = reflect.ValueOf(resultInterfaces[i]).Convert(c.name2result[methodName][i])
+		}
+		result = append(result, tmp)
+	}
+	return result, nil
+}
+
+func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflect.Value {
+	return func(params []reflect.Value) []reflect.Value {
+		paramInterfaces, _ := c.convertParams(params)
+
+		resultInterfaces, err := c.call(methodName, paramInterfaces)
 		if err != nil {
 			panic(err)
 		}
 
-		out := make([]reflect.Value, 0)
-		if len(result) != len(c.name2result[methodName]) {
-			out = append(out, reflect.ValueOf(fmt.Errorf("[MyClient]different out num betwwen remote and local")))
-			return out
+		result, err := c.convertResults(methodName, resultInterfaces)
+		if err != nil {
+			panic(err)
 		}
-		for i := 0; i < len(result); i++ {
-			var tmp reflect.Value
-			if c.name2result[methodName][i].Kind() == reflect.Struct {
-				inter := reflect.New(c.name2result[methodName][i]).Interface()
-				mapstructure.Decode(result[i], &inter)
-				tmp = reflect.ValueOf(inter).Elem()
-			} else {
-				tmp = reflect.ValueOf(result[i]).Convert(c.name2result[methodName][i])
-			}
-			out = append(out, tmp)
-		}
-		return out
+		return result
 	}
 }
 
