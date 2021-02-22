@@ -18,7 +18,7 @@ type MyClient struct {
 	name2result map[string][]reflect.Type
 }
 
-func (c MyClient) send(request *infra.RPCRequest) error {
+func (c MyClient) send(request infra.Request) error {
 	bytes, err := request.Encode()
 	if err != nil {
 		return err
@@ -30,8 +30,8 @@ func (c MyClient) send(request *infra.RPCRequest) error {
 	return nil
 }
 
-func (c MyClient) get() (*infra.RPCResponse, error) {
-	var buf [10000]byte
+func (c MyClient) get() (infra.Response, error) {
+	var buf [infra.RPCResponseBufferSize]byte
 	n, err := c.connect.Read(buf[:])
 	if err != nil {
 		return nil, err
@@ -51,7 +51,7 @@ func (c MyClient) call(method string, params []interface{}) ([]interface{}, erro
 	if err != nil {
 		return nil, err
 	}
-	return response.Body, nil
+	return response.Body(), nil
 }
 
 func (c MyClient) convertParams(values []reflect.Value) ([]interface{}, error) {

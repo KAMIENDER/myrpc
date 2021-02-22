@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/mitchellh/mapstructure"
-	"github.com/vmihailenco/msgpack"
 	"net"
 	"reflect"
 )
@@ -18,14 +17,14 @@ type MyServer struct {
 	name2params  map[string][]reflect.Type
 }
 
-func (s MyServer) process(con net.Conn) error {
+func (s *MyServer) process(con net.Conn) error {
 	defer con.Close()
 	for {
 		request, err := s.get(con)
 		if err != nil {
 			return err
 		}
-		response, err := s.dispatch(*request)
+		response, err := s.dispatch(request)
 		if err != nil {
 			return err
 		}
@@ -36,11 +35,11 @@ func (s MyServer) process(con net.Conn) error {
 	}
 }
 
-func (s MyServer) get(con net.Conn) (*infra.RPCRequest, error) {
+func (s MyServer) get(con net.Conn) (infra.Request, error) {
 	var request infra.RPCRequest
 
 	reader := bufio.NewReader(con)
-	var buf [10000]byte
+	var buf [infra.RPCRequestBufferSize]byte
 	n, err := reader.Read(buf[:])
 
 	if err != nil {
@@ -50,8 +49,8 @@ func (s MyServer) get(con net.Conn) (*infra.RPCRequest, error) {
 	return &request, err
 }
 
-func (s MyServer) send(response *infra.RPCResponse, conn net.Conn) error {
-	buf, err := msgpack.Marshal(response)
+func (s MyServer) send(response infra.Response, conn net.Conn) error {
+	buf, err := response.Encode()
 	if err != nil {
 		return err
 	}
@@ -59,7 +58,7 @@ func (s MyServer) send(response *infra.RPCResponse, conn net.Conn) error {
 	return err
 }
 
-func (s MyServer) convertParams(methodName string, params []interface{}) ([]reflect.Value, error) {
+func (s *MyServer) convertParams(methodName string, params []interface{}) ([]reflect.Value, error) {
 	start := 0
 	end := len(params)
 	paramVs := make([]reflect.Value, 0)
@@ -89,13 +88,13 @@ func (s MyServer) convertResult(result []reflect.Value) ([]interface{}, error) {
 	return resultInterfaces, nil
 }
 
-func (s MyServer) dispatch(request infra.RPCRequest) (*infra.RPCResponse, error) {
-	handler, ok := s.name2handler[request.MethodName]
+func (s *MyServer) dispatch(request infra.Request) (infra.Response, error) {
+	handler, ok := s.name2handler[request.MethodName()]
 	if !ok {
 		return nil, error(fmt.Errorf("[Server]dispatch error: func not exits"))
 	}
 
-	params, err := s.convertParams(request.MethodName, request.Params)
+	params, err := s.convertParams(request.MethodName(), request.Params())
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +106,7 @@ func (s MyServer) dispatch(request infra.RPCRequest) (*infra.RPCResponse, error)
 	return response, nil
 }
 
-func (s MyServer) Listen() error {
+func (s *MyServer) Listen() error {
 	fmt.Printf("[MyServer]start listening at %v", s.listener.Addr())
 	for {
 		conn, err := s.listener.Accept()
@@ -117,7 +116,7 @@ func (s MyServer) Listen() error {
 		go s.process(conn)
 	}
 }
-func (s MyServer) Register(handler interface{}, name string) error {
+func (s *MyServer) Register(handler interface{}, name string) error {
 	handlerV := reflect.ValueOf(handler)
 	handlerT := reflect.TypeOf(handler)
 	if handlerT.Kind() != reflect.Func {

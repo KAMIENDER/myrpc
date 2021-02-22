@@ -4,16 +4,40 @@ package infra
 
 import "github.com/vmihailenco/msgpack"
 
+const RPCRequestBufferSize = 4096
+const RPCResponseBufferSize = 4096
+
+type Request interface {
+	MethodName() string
+	Params() []interface{}
+	Encode() ([]byte, error)
+	Decode([]byte) error
+}
+
+type Response interface {
+	Body() []interface{}
+	Encode() ([]byte, error)
+	Decode([]byte) error
+}
+
 type RPCRequest struct {
-	MethodName string        `json:"method_name"`
-	Params     []interface{} `json:"params"`
+	RPCMethodName string        `json:"method_name"`
+	RPCParams     []interface{} `json:"params"`
 }
 
 func NewRPCRequest(methodName string, params []interface{}) *RPCRequest {
 	return &RPCRequest{
-		MethodName: methodName,
-		Params:     params,
+		RPCMethodName: methodName,
+		RPCParams:     params,
 	}
+}
+
+func (r RPCRequest) MethodName() string {
+	return r.RPCMethodName
+}
+
+func (r RPCRequest) Params() []interface{} {
+	return r.RPCParams
 }
 
 func (r *RPCRequest) Encode() ([]byte, error) {
@@ -21,17 +45,21 @@ func (r *RPCRequest) Encode() ([]byte, error) {
 }
 
 func (r *RPCRequest) Decode(bytes []byte) error {
-	return msgpack.Unmarshal(bytes, r)
+	return msgpack.Unmarshal(bytes, &r)
 }
 
 type RPCResponse struct {
-	Body []interface{} `json:"body"`
+	RPCBody []interface{} `json:"body"`
 }
 
 func NewRPCResponse(body []interface{}) *RPCResponse {
 	return &RPCResponse{
-		Body: body,
+		RPCBody: body,
 	}
+}
+
+func (r RPCResponse) Body() []interface{} {
+	return r.RPCBody
 }
 
 func (r *RPCResponse) Encode() ([]byte, error) {
