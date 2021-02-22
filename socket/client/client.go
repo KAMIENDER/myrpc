@@ -3,6 +3,7 @@
 package client
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/hejiadong/myrpc/socket/service"
@@ -31,13 +32,9 @@ func (c MyClient) send(request infra.Request) error {
 }
 
 func (c MyClient) get() (infra.Response, error) {
-	var buf [infra.RPCResponseBufferSize]byte
-	n, err := c.connect.Read(buf[:])
-	if err != nil {
-		return nil, err
-	}
+	reader := bufio.NewReader(c.connect)
 	var response infra.RPCResponse
-	err = response.Decode(buf[:n])
+	err := response.Decode(reader)
 	return &response, err
 }
 

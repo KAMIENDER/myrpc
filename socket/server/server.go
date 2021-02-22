@@ -39,13 +39,8 @@ func (s MyServer) get(con net.Conn) (infra.Request, error) {
 	var request infra.RPCRequest
 
 	reader := bufio.NewReader(con)
-	var buf [infra.RPCRequestBufferSize]byte
-	n, err := reader.Read(buf[:])
 
-	if err != nil {
-		return nil, err
-	}
-	err = request.Decode(buf[:n])
+	err := request.Decode(reader)
 	return &request, err
 }
 
