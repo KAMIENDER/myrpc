@@ -5,6 +5,7 @@ package client
 import (
 	"bufio"
 	"fmt"
+	"github.com/hejiadong/myrpc/socket/MyCall"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/hejiadong/myrpc/socket/service"
 	"github.com/mitchellh/mapstructure"
@@ -89,7 +90,7 @@ func (c MyClient) convertResults(methodName string, resultInterfaces []interface
 	return result, nil
 }
 
-func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflect.Value {
+func (c MyClient) makeCallFunc(methodName string, call *MyCall.MyCall) func([]reflect.Value) []reflect.Value {
 	return func(params []reflect.Value) []reflect.Value {
 		paramInterfaces, _ := c.convertParams(params)
 
@@ -101,6 +102,9 @@ func (c MyClient) makeCallFunc(methodName string) func([]reflect.Value) []reflec
 		result, err := c.convertResults(methodName, resultInterfaces)
 		if err != nil {
 			panic(err)
+		}
+		if call != nil {
+			call.SetResult(result)
 		}
 		return result
 	}
@@ -117,7 +121,7 @@ func (c MyClient) RegisterService(service service.RPCService) {
 		v := elemV.Field(i)
 		if v.Kind() == reflect.Func && v.CanSet() && v.IsValid() {
 			// different between t.Type and v.Type()
-			v.Set(reflect.MakeFunc(t.Type, c.makeCallFunc(t.Name)))
+			v.Set(reflect.MakeFunc(t.Type, c.makeCallFunc(t.Name, nil)))
 			vt := v.Type()
 			result := make([]reflect.Type, 0)
 			for i := 0; i < vt.NumOut(); i++ {
@@ -126,6 +130,20 @@ func (c MyClient) RegisterService(service service.RPCService) {
 			c.name2result[t.Name] = result
 		}
 	}
+}
+
+func (c MyClient) AsyncCall(service service.RPCService,method string, params reflect.Value) *MyCall.MyCall {
+	call := MyCall.NewMyCall(method, params)
+	serviceType := reflect.TypeOf(service)
+	oriFunc, found := serviceType.FieldByName(method)
+	if !found {
+		panic("[MyClient]AsyncCall: Field not found")
+	}
+	fun := reflect.MakeFunc(oriFunc.Type, c.makeCallFunc(method, call))
+	nowParams := make([]reflect.Value, 1)
+	nowParams[0] = params
+	go fun.Call(nowParams)
+	return call
 }
 
 func NewMyClient(conType string, address string) *MyClient {
