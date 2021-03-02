@@ -90,7 +90,7 @@ func (c MyClient) convertResults(methodName string, resultInterfaces []interface
 	return result, nil
 }
 
-func (c MyClient) makeCallFunc(methodName string, call *MyCall.MyCall) func([]reflect.Value) []reflect.Value {
+func (c MyClient) makeCallFunc(methodName string, call MyCall.RPCCall) func([]reflect.Value) []reflect.Value {
 	return func(params []reflect.Value) []reflect.Value {
 		paramInterfaces, _ := c.convertParams(params)
 
@@ -132,7 +132,7 @@ func (c MyClient) RegisterService(service service.RPCService) {
 	}
 }
 
-func (c MyClient) AsyncCall(service service.RPCService,method string, params reflect.Value) *MyCall.MyCall {
+func (c MyClient) AsyncCall(service service.RPCService,method string, params reflect.Value) MyCall.RPCCall {
 	call := MyCall.NewMyCall(method, params)
 	serviceType := reflect.TypeOf(service)
 	oriFunc, found := serviceType.FieldByName(method)

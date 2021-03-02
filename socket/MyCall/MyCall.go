@@ -4,7 +4,7 @@ import "reflect"
 
 type RPCCall interface {
 	Result() []reflect.Value
-
+	SetResult([]reflect.Value)
 }
 
 type MyCall struct {
