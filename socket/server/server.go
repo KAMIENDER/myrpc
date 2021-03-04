@@ -4,17 +4,62 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
+	"github.com/hejiadong/myrpc/socket/service"
 	"github.com/mitchellh/mapstructure"
 	"net"
 	"reflect"
 )
 
+type serviceInfo struct {
+	name2handler map[string]*reflect.Value
+	name2params  map[string][]reflect.Type
+}
+
+func (i serviceInfo) Handler(methodName string) (*reflect.Value, bool) {
+	handler, ok := i.name2handler[methodName]
+	return handler, ok
+}
+
+func (i serviceInfo) ParamsTypes(methodName string) ([]reflect.Type, bool) {
+	paramsTypes, ok := i.name2params[methodName]
+	return paramsTypes, ok
+}
+
+func newServiceInfo(service service.RPCService) *serviceInfo {
+	name2handler := make(map[string]*reflect.Value)
+	name2params := make(map[string][]reflect.Type)
+
+	serviceType := reflect.ValueOf(service)
+	print("name" + serviceType.Type().Name())
+	serviceType.NumMethod()
+
+	elemV := serviceType.Elem()
+	elemT := elemV.Type()
+	fieldNum := elemV.NumMethod()
+	for i := 0; i < fieldNum; i++ {
+		t := elemT.Method(i)
+		v := elemV.Method(i)
+		if v.Kind() == reflect.Func {
+			args := make([]reflect.Type, 0)
+			for i := 0; i < v.Type().NumIn(); i++ {
+				arg := v.Type().In(i)
+				args = append(args, arg)
+			}
+			name2handler[t.Name] = &v
+			name2params[t.Name] = args
+		}
+	}
+	return &serviceInfo{
+		name2handler: name2handler,
+		name2params:  name2params,
+	}
+}
+
 type MyServer struct {
 	listener     net.Listener
 	connType     string
 	address      string
-	name2handler map[string]*reflect.Value
-	name2params  map[string][]reflect.Type
+	name2service map[string]*serviceInfo
 }
 
 func (s *MyServer) process(con net.Conn) error {
@@ -53,18 +98,19 @@ func (s MyServer) send(response infra.Response, conn net.Conn) error {
 	return err
 }
 
-func (s *MyServer) convertParams(methodName string, params []interface{}) ([]reflect.Value, error) {
+func (s *MyServer) convertParams(request infra.Request) ([]reflect.Value, error) {
 	start := 0
+	params := request.Params()
 	end := len(params)
 	paramVs := make([]reflect.Value, 0)
-	funcParamsT := s.name2params[methodName]
+	funcParamsT, _ := s.name2service[request.ServiceName()].ParamsTypes(request.MethodName())
 	if len(funcParamsT) != end-start {
 		return nil, fmt.Errorf("[Server]dispatch error: num of args dismatch")
 	}
 	for i := start; i < end; i++ {
 		var param reflect.Value
-		if s.name2params[methodName][i].Kind() == reflect.Struct {
-			inter := reflect.New(s.name2params[methodName][i]).Interface()
+		if funcParamsT[i].Kind() == reflect.Struct {
+			inter := reflect.New(funcParamsT[i]).Interface()
 			mapstructure.Decode(params[i], &inter)
 			param = reflect.ValueOf(inter).Elem()
 		} else {
@@ -84,12 +130,16 @@ func (s MyServer) convertResult(result []reflect.Value) ([]interface{}, error) {
 }
 
 func (s *MyServer) dispatch(request infra.Request) (infra.Response, error) {
-	handler, ok := s.name2handler[request.MethodName()]
+	service, ok := s.name2service[request.ServiceName()]
+	if !ok {
+		return nil, error(fmt.Errorf("[Server]dispatch error: service not exits"))
+	}
+	handler, ok := service.Handler(request.MethodName())
 	if !ok {
 		return nil, error(fmt.Errorf("[Server]dispatch error: func not exits"))
 	}
 
-	params, err := s.convertParams(request.MethodName(), request.Params())
+	params, err := s.convertParams(request)
 	if err != nil {
 		return nil, err
 	}
@@ -111,26 +161,15 @@ func (s *MyServer) Listen() error {
 		go s.process(conn)
 	}
 }
-func (s *MyServer) Register(handler interface{}, name string) error {
-	handlerV := reflect.ValueOf(handler)
-	handlerT := reflect.TypeOf(handler)
-	if handlerT.Kind() != reflect.Func {
-		return error(fmt.Errorf("[MyServer Register]error: Not Func type"))
-	}
-	args := make([]reflect.Type, 0)
-	for i := 0; i < handlerT.NumIn(); i++ {
-		arg := handlerT.In(i)
-		args = append(args, arg)
-	}
-	s.name2handler[name] = &handlerV
-	s.name2params[name] = args
+func (s *MyServer) Register(service service.RPCService) error {
+	tServiceInfo := newServiceInfo(service)
+	s.name2service[service.Name()] = tServiceInfo
 	return nil
 }
 
 func NewMyServer(connType string, address string) *MyServer {
 	listener, err := net.Listen(connType, address)
-	name2handler := make(map[string]*reflect.Value)
-	name2params := make(map[string][]reflect.Type)
+	name2service := make(map[string]*serviceInfo)
 	if err != nil {
 		fmt.Printf("[newMyServer]err :%v", err)
 		return nil
@@ -139,7 +178,6 @@ func NewMyServer(connType string, address string) *MyServer {
 		listener:     listener,
 		connType:     connType,
 		address:      address,
-		name2handler: name2handler,
-		name2params:  name2params,
+		name2service: name2service,
 	}
 }

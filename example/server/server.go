@@ -15,12 +15,20 @@ type Params struct {
 	Test Test
 }
 
-func Add(params Params) (int, socket.MyError) {
+type AddService struct {
+}
+
+func (s AddService) Add(params Params) (int, socket.MyError) {
 	return params.A + params.B, nil
 }
 
+func (s AddService) Name() string {
+	return "AddService"
+}
+
 func main() {
+	service := AddService{}
 	server := server.NewMyServer("tcp", "127.0.0.1:9999")
-	server.Register(Add, "Add")
+	server.Register(&service)
 	server.Listen()
 }

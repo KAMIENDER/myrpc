@@ -4,7 +4,6 @@ import (
 	"fmt"
 	MyClient "github.com/hejiadong/myrpc/socket/client"
 	socket "github.com/hejiadong/myrpc/socket/myError"
-	"reflect"
 )
 
 type Test struct {
@@ -21,8 +20,8 @@ type AddService struct {
 	Add func(params Params) (int, socket.RPCError)
 }
 
-func (s *AddService) Name() string {
-	return "Add"
+func (s AddService) Name() string {
+	return "AddService"
 }
 
 func main() {
@@ -36,8 +35,8 @@ func main() {
 			C: 10,
 		},
 	}
-	//b, err := s.Add(params)
-	call := client.AsyncCall(s, "Add", reflect.ValueOf(params))
-	fmt.Printf("aaaaa")
-	fmt.Printf("%v %v", call.Result()[0], call.Result()[1])
+	b, err := s.Add(params)
+	//call := client.AsyncCall(s, "Add", reflect.ValueOf(params))
+	//fmt.Printf("aaaaa")
+	fmt.Printf("%v %v", b, err)
 }
