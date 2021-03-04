@@ -27,7 +27,7 @@ func (s *AddService) Name() string {
 
 func main() {
 	var s AddService
-	client := MyClient.NewMyClient("tcp", "127.0.0.1:9999")
+	client := MyClient.NewMyClient("tcp", "127.0.0.1:9999", 10)
 	client.RegisterService(&s)
 	params := Params{
 		A: 1,

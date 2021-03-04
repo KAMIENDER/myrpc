@@ -11,6 +11,7 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"net"
 	"reflect"
+	"time"
 )
 
 type MyClient struct {
@@ -18,6 +19,7 @@ type MyClient struct {
 	connType    string
 	address     string
 	name2result map[string][]reflect.Type
+	ConnectTimeout time.Duration
 }
 
 func (c MyClient) send(request infra.Request) error {
@@ -39,8 +41,8 @@ func (c MyClient) get() (infra.Response, error) {
 	return &response, err
 }
 
-func (c MyClient) call(method string, params []interface{}) ([]interface{}, error) {
-	request := infra.NewRPCRequest(method, params)
+func (c MyClient) call(service string, method string, params []interface{}) ([]interface{}, error) {
+	request := infra.NewRPCRequest(service, method, params)
 	err := c.send(request)
 	if err != nil {
 		return nil, err
@@ -90,11 +92,11 @@ func (c MyClient) convertResults(methodName string, resultInterfaces []interface
 	return result, nil
 }
 
-func (c MyClient) makeCallFunc(methodName string, call MyCall.RPCCall) func([]reflect.Value) []reflect.Value {
+func (c MyClient) makeCallFunc(methodName string, call MyCall.RPCCall, service string) func([]reflect.Value) []reflect.Value {
 	return func(params []reflect.Value) []reflect.Value {
 		paramInterfaces, _ := c.convertParams(params)
 
-		resultInterfaces, err := c.call(methodName, paramInterfaces)
+		resultInterfaces, err := c.call(service, methodName, paramInterfaces)
 		if err != nil {
 			panic(err)
 		}
@@ -104,7 +106,7 @@ func (c MyClient) makeCallFunc(methodName string, call MyCall.RPCCall) func([]re
 			panic(err)
 		}
 		if call != nil {
-			call.SetResult(result)
+			call.SetResult(result, nil)
 		}
 		return result
 	}
@@ -121,7 +123,7 @@ func (c MyClient) RegisterService(service service.RPCService) {
 		v := elemV.Field(i)
 		if v.Kind() == reflect.Func && v.CanSet() && v.IsValid() {
 			// different between t.Type and v.Type()
-			v.Set(reflect.MakeFunc(t.Type, c.makeCallFunc(t.Name, nil)))
+			v.Set(reflect.MakeFunc(t.Type, c.makeCallFunc(t.Name, nil, elemT.Name())))
 			vt := v.Type()
 			result := make([]reflect.Type, 0)
 			for i := 0; i < vt.NumOut(); i++ {
@@ -139,15 +141,16 @@ func (c MyClient) AsyncCall(service service.RPCService,method string, params ref
 	if !found {
 		panic("[MyClient]AsyncCall: Field not found")
 	}
-	fun := reflect.MakeFunc(oriFunc.Type, c.makeCallFunc(method, call))
+	fun := reflect.MakeFunc(oriFunc.Type, c.makeCallFunc(method, call, serviceType.Name()))
 	nowParams := make([]reflect.Value, 1)
 	nowParams[0] = params
 	go fun.Call(nowParams)
 	return call
 }
 
-func NewMyClient(conType string, address string) *MyClient {
-	conn, err := net.Dial(conType, address)
+func NewMyClient(conType string, address string, timeoutSecond int64) *MyClient {
+	// 建立链接是否超时
+	conn, err := net.DialTimeout(conType, address, time.Duration(timeoutSecond) * time.Second)
 	name2result := make(map[string][]reflect.Type)
 	if err != nil {
 		fmt.Printf("[NewMyClient] build conn error: %v", err)
@@ -158,5 +161,6 @@ func NewMyClient(conType string, address string) *MyClient {
 		connType:    conType,
 		address:     address,
 		name2result: name2result,
+		ConnectTimeout: time.Duration(timeoutSecond) * time.Second,
 	}
 }

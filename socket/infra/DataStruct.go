@@ -15,12 +15,14 @@ type Request interface {
 	Params() []interface{}
 	Encode() ([]byte, error)
 	Decode(*bufio.Reader) error
+	ServiceName() string
 }
 
 type Response interface {
 	Body() []interface{}
 	Encode() ([]byte, error)
 	Decode(*bufio.Reader) error
+	ServiceName() string
 }
 
 type RPCCodec struct{}
@@ -67,15 +69,21 @@ func (c RPCCodec) RPCCodecEncode(r interface{}) ([]byte, error) {
 
 type RPCRequest struct {
 	RPCCodec
+	RPCService string
 	RPCMethodName string
 	RPCParams     []interface{}
 }
 
-func NewRPCRequest(methodName string, params []interface{}) *RPCRequest {
+func NewRPCRequest(service string, methodName string, params []interface{}) *RPCRequest {
 	return &RPCRequest{
+		RPCService: service,
 		RPCMethodName: methodName,
 		RPCParams:     params,
 	}
+}
+
+func (r RPCRequest) ServiceName() string {
+	return r.RPCService
 }
 
 func (r RPCRequest) MethodName() string {
@@ -96,13 +104,18 @@ func (r *RPCRequest) Decode(reader *bufio.Reader) error {
 
 type RPCResponse struct {
 	RPCCodec
+	RPCService string
 	RPCBody []interface{}
 }
 
-func NewRPCResponse(body []interface{}) *RPCResponse {
+func NewRPCResponse(service string, body []interface{}) *RPCResponse {
 	return &RPCResponse{
 		RPCBody: body,
 	}
+}
+
+func (r RPCResponse) ServiceName() string {
+	return r.RPCService
 }
 
 func (r RPCResponse) Body() []interface{} {

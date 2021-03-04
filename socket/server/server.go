@@ -96,7 +96,7 @@ func (s *MyServer) dispatch(request infra.Request) (infra.Response, error) {
 	result := handler.Call(params)
 
 	resultInterfaces, err := s.convertResult(result)
-	response := infra.NewRPCResponse(resultInterfaces)
+	response := infra.NewRPCResponse(request.ServiceName(), resultInterfaces)
 
 	return response, nil
 }
