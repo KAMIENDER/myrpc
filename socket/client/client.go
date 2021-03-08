@@ -8,6 +8,7 @@ import (
 	"github.com/hejiadong/myrpc/socket/MyCall"
 	"github.com/hejiadong/myrpc/socket/infra"
 	"github.com/hejiadong/myrpc/socket/service"
+	ServicePackage "github.com/hejiadong/myrpc/socket/service"
 	"github.com/mitchellh/mapstructure"
 	"net"
 	"reflect"
@@ -15,11 +16,11 @@ import (
 )
 
 type MyClient struct {
-	connect     net.Conn
-	connType    string
-	address     string
-	name2result map[string][]reflect.Type
-	ConnectTimeout time.Duration
+	connect          net.Conn
+	connType         string
+	address          string
+	ConnectTimeout   time.Duration
+	name2serviceInfo map[string]*ServicePackage.ServiceInfo
 }
 
 func (c MyClient) send(request infra.Request) error {
@@ -54,7 +55,7 @@ func (c MyClient) call(service string, method string, params []interface{}) ([]i
 	return response.Body(), nil
 }
 
-func (c MyClient) convertParams(values []reflect.Value) ([]interface{}, error) {
+func (c MyClient) convertParams(serviceName string, values []reflect.Value) ([]interface{}, error) {
 	var paramInterfaces []interface{}
 
 	start := 0
@@ -73,35 +74,39 @@ func (c MyClient) convertParams(values []reflect.Value) ([]interface{}, error) {
 	return paramInterfaces, nil
 }
 
-func (c MyClient) convertResults(methodName string, resultInterfaces []interface{}) ([]reflect.Value, error) {
+func (c MyClient) convertResults(serviceName string, methodName string, resultInterfaces []interface{}) ([]reflect.Value, error) {
+	resultTypes, ok := c.name2serviceInfo[serviceName].ResultTypes(methodName)
+	if !ok {
+		return nil, fmt.Errorf("[MyClient]convertResults error: result not exit")
+	}
 	result := make([]reflect.Value, 0)
-	if len(resultInterfaces) != len(c.name2result[methodName]) {
+	if len(resultInterfaces) != len(resultTypes) {
 		return result, fmt.Errorf("[MyClient]different result num betwwen remote and local")
 	}
 	for i := 0; i < len(resultInterfaces); i++ {
 		var tmp reflect.Value
-		if c.name2result[methodName][i].Kind() == reflect.Struct {
-			inter := reflect.New(c.name2result[methodName][i]).Interface()
+		if resultTypes[i].Kind() == reflect.Struct {
+			inter := reflect.New(resultTypes[i]).Interface()
 			mapstructure.Decode(resultInterfaces[i], &inter)
 			tmp = reflect.ValueOf(inter).Elem()
 		} else {
-			tmp = reflect.ValueOf(resultInterfaces[i]).Convert(c.name2result[methodName][i])
+			tmp = reflect.ValueOf(resultInterfaces[i]).Convert(resultTypes[i])
 		}
 		result = append(result, tmp)
 	}
 	return result, nil
 }
 
-func (c MyClient) makeCallFunc(methodName string, call MyCall.RPCCall, service string) func([]reflect.Value) []reflect.Value {
+func (c MyClient) makeCallFunc(methodName string, call MyCall.RPCCall, serviceName string) func([]reflect.Value) []reflect.Value {
 	return func(params []reflect.Value) []reflect.Value {
-		paramInterfaces, _ := c.convertParams(params)
+		paramInterfaces, _ := c.convertParams(serviceName, params)
 
-		resultInterfaces, err := c.call(service, methodName, paramInterfaces)
+		resultInterfaces, err := c.call(serviceName, methodName, paramInterfaces)
 		if err != nil {
 			panic(err)
 		}
 
-		result, err := c.convertResults(methodName, resultInterfaces)
+		result, err := c.convertResults(serviceName, methodName, resultInterfaces)
 		if err != nil {
 			panic(err)
 		}
@@ -124,17 +129,12 @@ func (c MyClient) RegisterService(service service.RPCService) {
 		if v.Kind() == reflect.Func && v.CanSet() && v.IsValid() {
 			// different between t.Type and v.Type()
 			v.Set(reflect.MakeFunc(t.Type, c.makeCallFunc(t.Name, nil, elemT.Name())))
-			vt := v.Type()
-			result := make([]reflect.Type, 0)
-			for i := 0; i < vt.NumOut(); i++ {
-				result = append(result, vt.Out(i))
-			}
-			c.name2result[t.Name] = result
 		}
 	}
+	c.name2serviceInfo[service.Name()] = ServicePackage.NewServiceInfoByService(service)
 }
 
-func (c MyClient) AsyncCall(service service.RPCService,method string, params reflect.Value) MyCall.RPCCall {
+func (c MyClient) AsyncCall(service service.RPCService, method string, params reflect.Value) MyCall.RPCCall {
 	call := MyCall.NewMyCall(method, params)
 	serviceType := reflect.TypeOf(service)
 	oriFunc, found := serviceType.FieldByName(method)
@@ -150,17 +150,17 @@ func (c MyClient) AsyncCall(service service.RPCService,method string, params ref
 
 func NewMyClient(conType string, address string, timeoutSecond int64) *MyClient {
 	// 建立链接是否超时
-	conn, err := net.DialTimeout(conType, address, time.Duration(timeoutSecond) * time.Second)
-	name2result := make(map[string][]reflect.Type)
+	conn, err := net.DialTimeout(conType, address, time.Duration(timeoutSecond)*time.Second)
+	name2service := make(map[string]*ServicePackage.ServiceInfo)
 	if err != nil {
 		fmt.Printf("[NewMyClient] build conn error: %v", err)
 	}
 	// defer means?
 	return &MyClient{
-		connect:     conn,
-		connType:    conType,
-		address:     address,
-		name2result: name2result,
-		ConnectTimeout: time.Duration(timeoutSecond) * time.Second,
+		connect:          conn,
+		connType:         conType,
+		address:          address,
+		name2serviceInfo: name2service,
+		ConnectTimeout:   time.Duration(timeoutSecond) * time.Second,
 	}
 }

@@ -30,6 +30,11 @@ func (i ServiceInfo) ParamsTypes(methodName string) ([]reflect.Type, bool) {
 	return paramsTypes, ok
 }
 
+func (i ServiceInfo) ResultTypes(methodName string) ([]reflect.Type, bool) {
+	resultTypes, ok := i.name2results[methodName]
+	return resultTypes, ok
+}
+
 func NewServiceInfoByService(service RPCService) *ServiceInfo {
 	name2handler := make(map[string]*reflect.Value)
 	name2params := make(map[string][]reflect.Type)
@@ -40,8 +45,8 @@ func NewServiceInfoByService(service RPCService) *ServiceInfo {
 
 	elemV := serviceType.Elem()
 	elemT := elemV.Type()
-	fieldNum := elemV.NumMethod()
-	for i := 0; i < fieldNum; i++ {
+	funcNum := elemV.NumMethod()
+	for i := 0; i < funcNum; i++ {
 		t := elemT.Method(i)
 		v := elemV.Method(i)
 		if v.Kind() == reflect.Func {
@@ -62,5 +67,29 @@ func NewServiceInfoByService(service RPCService) *ServiceInfo {
 			name2params[t.Name] = args
 		}
 	}
+
+	fieldNum := elemV.NumField()
+	for i := 0; i < fieldNum; i++ {
+		t := elemT.Field(i)
+		v := elemV.Field(i)
+		if v.Kind() == reflect.Func {
+			vType := v.Type()
+
+			args := make([]reflect.Type, 0)
+			result := make([]reflect.Type, 0)
+
+			for i := 0; i < vType.NumIn(); i++ {
+				arg := v.Type().In(i)
+				args = append(args, arg)
+			}
+			for i := 0; i < vType.NumOut(); i++ {
+				result = append(result, vType.Out(i))
+			}
+			name2handler[t.Name] = &v
+			name2result[t.Name] = result
+			name2params[t.Name] = args
+		}
+	}
+
 	return NewServiceInfo(name2handler, name2params, name2result)
 }
