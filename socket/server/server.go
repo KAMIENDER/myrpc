@@ -4,62 +4,17 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/hejiadong/myrpc/socket/infra"
-	"github.com/hejiadong/myrpc/socket/service"
+	ServicePackage "github.com/hejiadong/myrpc/socket/service"
 	"github.com/mitchellh/mapstructure"
 	"net"
 	"reflect"
 )
 
-type serviceInfo struct {
-	name2handler map[string]*reflect.Value
-	name2params  map[string][]reflect.Type
-}
-
-func (i serviceInfo) Handler(methodName string) (*reflect.Value, bool) {
-	handler, ok := i.name2handler[methodName]
-	return handler, ok
-}
-
-func (i serviceInfo) ParamsTypes(methodName string) ([]reflect.Type, bool) {
-	paramsTypes, ok := i.name2params[methodName]
-	return paramsTypes, ok
-}
-
-func newServiceInfo(service service.RPCService) *serviceInfo {
-	name2handler := make(map[string]*reflect.Value)
-	name2params := make(map[string][]reflect.Type)
-
-	serviceType := reflect.ValueOf(service)
-	print("name" + serviceType.Type().Name())
-	serviceType.NumMethod()
-
-	elemV := serviceType.Elem()
-	elemT := elemV.Type()
-	fieldNum := elemV.NumMethod()
-	for i := 0; i < fieldNum; i++ {
-		t := elemT.Method(i)
-		v := elemV.Method(i)
-		if v.Kind() == reflect.Func {
-			args := make([]reflect.Type, 0)
-			for i := 0; i < v.Type().NumIn(); i++ {
-				arg := v.Type().In(i)
-				args = append(args, arg)
-			}
-			name2handler[t.Name] = &v
-			name2params[t.Name] = args
-		}
-	}
-	return &serviceInfo{
-		name2handler: name2handler,
-		name2params:  name2params,
-	}
-}
-
 type MyServer struct {
 	listener     net.Listener
 	connType     string
 	address      string
-	name2service map[string]*serviceInfo
+	name2service map[string]*ServicePackage.ServiceInfo
 }
 
 func (s *MyServer) process(con net.Conn) error {
@@ -161,15 +116,15 @@ func (s *MyServer) Listen() error {
 		go s.process(conn)
 	}
 }
-func (s *MyServer) Register(service service.RPCService) error {
-	tServiceInfo := newServiceInfo(service)
+func (s *MyServer) Register(service ServicePackage.RPCService) error {
+	tServiceInfo := ServicePackage.NewServiceInfoByService(service)
 	s.name2service[service.Name()] = tServiceInfo
 	return nil
 }
 
 func NewMyServer(connType string, address string) *MyServer {
 	listener, err := net.Listen(connType, address)
-	name2service := make(map[string]*serviceInfo)
+	name2service := make(map[string]*ServicePackage.ServiceInfo)
 	if err != nil {
 		fmt.Printf("[newMyServer]err :%v", err)
 		return nil
